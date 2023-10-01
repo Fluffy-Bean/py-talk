@@ -1,12 +1,24 @@
 import socket
 import threading
+import json
 from datetime import datetime
 
 
-HEADER = 64
+HEADER = 512
 PORT = 8080
 HOST = socket.gethostbyname(socket.gethostname())
 FORMAT = "UTF-8"
+
+
+"""
+example message contents looks as follows:
+{
+    "content": "Hello World!",  This is the actual message content
+    "time": "2021-01-01 00:00:00",  This is the time the message was sent in UTC
+    "username": "user",  This is the username of the user who sent the message, only temporary
+    "version": "0.0.1"  This is the version of the client that sent the message, can be used for compatibility in the future
+}
+"""
 
 
 class SocketChat:
@@ -18,6 +30,7 @@ class SocketChat:
         self._server.bind((self.host, self.port))
 
         self._clients = {}
+        self._messages = []
 
     def run(self):
         self._server.listen()
@@ -36,66 +49,70 @@ class SocketChat:
         self._server.close()
 
     def _broadcast(self, message, username="Server"):
-        broadcast_message = self._format_message(message, username)
-        if not broadcast_message:
-            return
+        message = {
+            "content": message,
+            "time": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+            "username": username,
+            "version": "0.0.1",
+        }
+        message = json.dumps(message).encode()
 
         for client in self._clients.copy():
             try:
-                client.send(broadcast_message)
+                client.send(message)
             except BrokenPipeError:
                 self._remove_client(client)
 
     def _direct(self, message, client):
         client = self._clients[client]
 
-        message = self._format_message(message, client["username"])
-        if not message:
-            return
+        message = {
+            "content": message,
+            "time": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+            "username": client["username"],
+            "version": "0.0.1",
+        }
+        message = json.dumps(message).encode()
 
         try:
             client.send(message)
         except BrokenPipeError:
             self._remove_client(client)
 
-    @staticmethod
-    def _format_message(message, username="Server"):
-        time = datetime.now().strftime("%H:%M:%S")
-
-        message.replace(";;", "")
-        message = message.strip()
-        if not message:
-            return None
-
-        broadcast_message = f"{username};;{message};;{time}".encode()
-        return broadcast_message
-
     def _client(self, client, address):
-        username = client.recv(HEADER).decode()
-        self._clients[client] = {
-            "username": username,
-            "address": address,
-        }
+        initial_data = client.recv(HEADER).decode()
+
+        print(initial_data)
+
+        initial_data = json.loads(initial_data.strip())
+
+        client_data = None
+        try:
+            client_data = {
+                "username": initial_data["username"],
+                "address": address,
+                "version": initial_data["version"],
+            }
+            self._clients[client] = client_data
+        except KeyError:
+            client.send("Invalid data!".encode())
+            client.close()
+            return
+        finally:
+            print("New connection from %s:%d" % (address[0], address[1]))
 
         while True:
             message = client.recv(HEADER).decode()
-            try:
-                key, message, time = message.strip().split(";;")
-            except ValueError:
-                self._direct("Malformed Information", client)
+
+            print(message)
+
+            message = json.loads(message.strip())
+
+            if not message or not message["content"]:
                 continue
 
-            if key not in ("C", "M"):
-                self._direct("Malformed Information", client)
-                continue
-
-            if key == "C":
-                if message == "quit":
-                    self._remove_client(client)
-                else:
-                    client.send("Unknown command!".encode())
-            if key == "M":
-                self._broadcast(message, username)
+            self._messages.append(message)
+            self._broadcast(message["content"], client_data["username"])
 
     def _remove_client(self, client):
         try:

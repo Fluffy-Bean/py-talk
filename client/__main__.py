@@ -1,20 +1,15 @@
 import os
 import socket
 import threading
+import json
 from datetime import datetime
 import time
 
 
-HEADER = 64
+HEADER = 512
 PORT = 8080
 HOST = socket.gethostbyname(socket.gethostname())
 FORMAT = "UTF-8"
-
-
-class Message:
-    content = None
-    username = None
-    time = None
 
 
 class Client:
@@ -26,20 +21,26 @@ class Client:
         self.username = "User"
 
         self._client = socket.socket()
-        self._connected = False
+        self._online = False
 
     def run(self):
-        self.username = input("Username: ")
+        self.username = input("Username: ").strip()
 
-        while not self._connected:
+        join_data = {
+            "username": self.username,
+            "version": "0.0.1",
+        }
+        join_data = json.dumps(join_data).encode()
+
+        while not self._online:
             try:
                 self._client.connect((self.host, self.port))
-                self._client.send(self.username.encode())
+                self._client.send(join_data)
             except ConnectionRefusedError:
                 print("Server is not available. Retrying in 2 seconds...")
                 time.sleep(2)
             else:
-                self._connected = True
+                self._online = True
 
         thread = threading.Thread(target=self._receive_message)
         thread.start()
@@ -48,16 +49,20 @@ class Client:
             self.refresh()
 
             while True:
-                message = input().strip().replace(";;", "")
-
+                message = input().strip()
                 if not message:
                     continue
-                if message == "!quit":
-                    self._client.send("C;;quit".encode())
-                    break
+
+                message = {
+                    "content": message,
+                    "time": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+                    "username": self.username,
+                    "version": "0.0.1",
+                }
+                message = json.dumps(message).encode()
 
                 try:
-                    self._client.send(f"M;;{message}".encode())
+                    self._client.send(message)
                 except BrokenPipeError:
                     print("Gone offline")
                     break
@@ -68,24 +73,28 @@ class Client:
             self._client.close()
 
     def _receive_message(self):
-        system_message = Message()
-        system_message.content = "Connected to server! Type !quit to exit."
-        system_message.username = "System"
-        system_message.time = datetime.now().strftime("%H:%M:%S")
+        system_message = {
+            "content": "Connected to server!",
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "username": "System",
+            "version": "0.0.1",
+        }
         self.messages.append(system_message)
 
         while True:
             content = self._client.recv(HEADER).decode()
-            content = content.strip().split(";;")
+            content = json.loads(content.strip())
 
-            if len(content) != 3:
-                print(content)
+            try:
+                message = {
+                    "content": content["content"],
+                    "time": content["time"],
+                    "username": content["username"],
+                    "version": content["version"],
+                }
+            except KeyError:
+                print("Invalid data received!")
                 continue
-
-            message = Message()
-            message.content = content[1]
-            message.username = content[0]
-            message.time = datetime.now().strftime("%H:%M:%S")
 
             self.messages.append(message)
             self.refresh()
@@ -93,7 +102,7 @@ class Client:
     def refresh(self):
         os.system("clear")
         for message in self.messages:
-            print(f"{message.username} ({message.time}): {message.content}")
+            print(f"{message['username']} ({message['time']}): {message['content']}")
         print(end="")
 
 
