@@ -1,0 +1,15 @@
+[tool.poetry]
+name = "socket-chat"
+version = "0.1.0"
+description = ""
+authors = ["Fluffy-Bean <michal-gdula@protonmail.com>"]
+readme = "README.md"
+packages = [{include = "socket_chat"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
