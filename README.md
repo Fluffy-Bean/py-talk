@@ -5,4 +5,4 @@ server and client, regrettably dreadful, probably insecure as shit, don't actual
 Written using pure python socket library
 
 ## Client
-Written using python socket library and pygame for the lols
+Written using python socket library and tkinter for the lols
